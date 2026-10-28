@@ -26,6 +26,16 @@
  * --dry-run prints what would be sent to /structure for each draft without
  * calling it or posting a comment. Operator-run or cron-run, same as
  * scripts/sweep-offers.ts and scripts/sweep-pairings.ts.
+ *
+ * Idempotency: right before writing, each draft is re-fetched and re-checked
+ * with isUnstructuredDraft() so a draft that another run (or a human) already
+ * structured since this sweep's listing was taken is skipped rather than
+ * rewritten. The /structure write and the transparency comment are also
+ * decoupled from each other in the result: if /structure succeeds but the
+ * comment fails, that's reported as "structured, comment failed" rather than
+ * a generic failure — the real work (the structuring) already happened, the
+ * next sweep's isUnstructuredDraft() filter will correctly see it as already
+ * done, and there is nothing left to retry.
  */
 import { isUnstructuredDraft } from "../../lib/ideas";
 
@@ -54,6 +64,8 @@ export type Deps = {
   anthropicModel: string;
   fetchImpl: FetchFn;
 };
+
+export type StructureOutcome = "structured" | "structured_comment_failed" | "skipped_already_structured";
 
 /**
  * A short line with no sentence punctuation is almost certainly a field
@@ -147,6 +159,11 @@ export async function listDrafts(deps: Deps): Promise<DraftIssue[]> {
   return drafts;
 }
 
+/** Re-fetch a single issue by id — used to re-check state right before writing. */
+export async function fetchIssue(deps: Deps, id: string): Promise<DraftIssue> {
+  return zikiFetch(deps, `/api/v1/issues/${id}`);
+}
+
 /** Ask Claude to pull the four structured fields out of raw draft text. */
 export async function extractFields(deps: Deps, issue: DraftIssue): Promise<Extraction> {
   const response = await deps.fetchImpl("https://api.anthropic.com/v1/messages", {
@@ -171,18 +188,45 @@ export async function extractFields(deps: Deps, issue: DraftIssue): Promise<Extr
   return parseExtraction(text);
 }
 
-export async function structureDraft(deps: Deps, issue: DraftIssue, fields: Extraction) {
+/**
+ * Write the structured fields and post a transparency comment.
+ *
+ * Re-checks the draft's current state right before writing (another sweep,
+ * or a human, may have structured or edited it since it was listed) and
+ * skips rather than overwrites if it's no longer an unstructured draft. The
+ * /structure write and the comment are reported separately: a comment
+ * failure after a successful /structure call does not get treated as a
+ * failed structuring, since the structuring itself already happened and
+ * does not need retrying.
+ */
+export async function structureDraft(deps: Deps, issue: DraftIssue, fields: Extraction): Promise<StructureOutcome> {
+  const fresh = await fetchIssue(deps, issue.id);
+  if (!isUnstructuredDraft(fresh)) {
+    return "skipped_already_structured";
+  }
+
   await zikiFetch(deps, `/api/v1/ideas/${issue.id}/structure`, {
     method: "POST",
     body: JSON.stringify(fields),
   });
-  await zikiFetch(deps, `/api/v1/issues/${issue.id}/comments`, {
-    method: "POST",
-    body: JSON.stringify({
-      body: "Structured from a raw draft by the draft-idea conversion agent — summary, problem statement, proposed solution and acceptance criteria were extracted from the original text. Please correct anything that doesn't match your intent.",
-      type: "comment",
-    }),
-  });
+
+  try {
+    await zikiFetch(deps, `/api/v1/issues/${issue.id}/comments`, {
+      method: "POST",
+      body: JSON.stringify({
+        body: "Structured from a raw draft by the draft-idea conversion agent — summary, problem statement, proposed solution and acceptance criteria were extracted from the original text. Please correct anything that doesn't match your intent.",
+        type: "comment",
+      }),
+    });
+  } catch (error) {
+    console.error(
+      `#${issue.number} structured, but the transparency comment failed (not retrying — the structuring itself already succeeded):`,
+      error instanceof Error ? error.message : error,
+    );
+    return "structured_comment_failed";
+  }
+
+  return "structured";
 }
 
 export async function flagTooThin(deps: Deps, issue: DraftIssue) {
@@ -199,6 +243,7 @@ export async function run(deps: Deps, options: { dryRun: boolean } = { dryRun: f
   const drafts = await listDrafts(deps);
   let structured = 0;
   let flagged = 0;
+  let skipped = 0;
   let failed = 0;
 
   for (const issue of drafts) {
@@ -213,18 +258,27 @@ export async function run(deps: Deps, options: { dryRun: boolean } = { dryRun: f
       const fields = await extractFields(deps, issue);
       if (options.dryRun) {
         console.log(`#${issue.number} "${issue.title}" — would structure with:`, fields);
-      } else {
-        await structureDraft(deps, issue, fields);
-        console.log(`#${issue.number} "${issue.title}" — structured.`);
+        structured++;
+        continue;
       }
-      structured++;
+
+      const outcome = await structureDraft(deps, issue, fields);
+      if (outcome === "skipped_already_structured") {
+        console.log(`#${issue.number} "${issue.title}" — already structured since listing, skipped.`);
+        skipped++;
+      } else {
+        console.log(
+          `#${issue.number} "${issue.title}" — structured${outcome === "structured_comment_failed" ? " (comment failed, not retried)" : ""}.`,
+        );
+        structured++;
+      }
     } catch (error) {
       console.error(`#${issue.number} "${issue.title}" — failed:`, error instanceof Error ? error.message : error);
       failed++;
     }
   }
 
-  return { total: drafts.length, structured, flagged, failed };
+  return { total: drafts.length, structured, flagged, skipped, failed };
 }
 
 async function main() {
@@ -245,7 +299,9 @@ async function main() {
   console.log(`Listing drafted ideas on ${deps.zikiBaseUrl}${dryRun ? " (dry run)" : ""}...`);
   const result = await run(deps, { dryRun });
   console.log(`Found ${result.total} unstructured draft(s).`);
-  console.log(`Done. Structured ${result.structured}, flagged ${result.flagged}, failed ${result.failed}.`);
+  console.log(
+    `Done. Structured ${result.structured}, flagged ${result.flagged}, skipped ${result.skipped}, failed ${result.failed}.`,
+  );
   if (result.failed > 0) process.exitCode = 1;
 }
 
