@@ -140,7 +140,7 @@ export async function sweepUndraftedIdeas(options?: {
           data: { description: nextDescription },
         });
         await audit(
-          agent,
+          { agentId: agent.id, tenantId: agent.tenantId },
           "idea.structured",
           `idea:${idea.id}`,
           { beforeTitle: fresh.title, afterTitle: fresh.title, beforeDescription: fresh.description },

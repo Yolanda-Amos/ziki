@@ -88,7 +88,7 @@ describe("sweepUndraftedIdeas (#682, #685)", () => {
       }),
     );
     expect(mockAudit).toHaveBeenCalledWith(
-      AGENT,
+      { agentId: AGENT.id, tenantId: AGENT.tenantId },
       "idea.structured",
       "idea:idea_1",
       expect.any(Object),
