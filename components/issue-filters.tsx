@@ -139,7 +139,10 @@ export function IssueFilters({
   people,
   selectedReporters = [],
   selectedAssignees = [],
+  extraChips = [],
 }: {
+  /** Smart search filters set on the server (reporter, assignee, …), shown with the other active filters. */
+  extraChips?: { label: string; removeHref: string }[];
   /** Smart search: typing a name offers it as a Reporter or Assignee filter. */
   people?: SearchPerson[];
   selectedReporters?: string[];
@@ -756,7 +759,7 @@ export function IssueFilters({
         </ul>
       ) : null}
 
-      {hasActiveFilters && (!compact || FILTER_PARAMS.some((param) => param !== "status" && Boolean(params.get(param)))) ? (
+      {(hasActiveFilters && (!compact || FILTER_PARAMS.some((param) => param !== "status" && Boolean(params.get(param))))) || extraChips.length > 0 ? (
         <div className="issues-active-filters flex w-full flex-wrap items-center gap-2 border-t border-zk-divider pt-2">
           <span className="text-xs font-semibold text-zk-muted">Active filters:</span>
           {currentQuery ? (
@@ -765,6 +768,17 @@ export function IssueFilters({
               <button type="button" onClick={() => { setText(""); update("q", ""); }} aria-label="Remove search filter" className="ml-0.5 rounded-full p-0.5 hover:bg-zk-chip">✕</button>
             </span>
           ) : null}
+          {extraChips.map((chip) => (
+            <a
+              key={chip.label}
+              href={chip.removeHref}
+              onClick={(event) => { event.preventDefault(); startSearchTransition(() => router.push(chip.removeHref)); }}
+              aria-label={`Remove filter ${chip.label}`}
+              className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-tint py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-accent hover:bg-zk-chip"
+            >
+              {chip.label}<span aria-hidden="true" className="ml-0.5 p-0.5">✕</span>
+            </a>
+          ))}
           {currentStage ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-chip py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-text">
               Kind: {STAGE_OPTIONS.find((option) => option.value === currentStage)?.label}

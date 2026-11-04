@@ -1,9 +1,14 @@
+/** POSIX allows a leading ":" in TZ (Vercel sets ":UTC"); Intl rejects it. */
+function envTimeZone(): string | undefined {
+  return process.env.TZ?.replace(/^:/, "") || undefined;
+}
+
 export function getDefaultTimeZone(): string {
-  return process.env.TZ || process.env.DEFAULT_TIMEZONE || "Africa/Lagos";
+  return envTimeZone() || process.env.DEFAULT_TIMEZONE || "Africa/Lagos";
 }
 
 export const defaultTz =
-  process.env.TZ || process.env.DEFAULT_TIMEZONE || "Africa/Lagos";
+  envTimeZone() || process.env.DEFAULT_TIMEZONE || "Africa/Lagos";
 
 export function formatDate(value: Date | string, timeZone?: string) {
   const date = typeof value === "string" ? new Date(value) : value;

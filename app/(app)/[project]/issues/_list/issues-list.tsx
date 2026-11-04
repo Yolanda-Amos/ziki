@@ -990,22 +990,14 @@ export async function IssuesList({
   // The chips under the toolbar: one per active filter, each with its own remove link.
   const smartChips: SmartFilterChip[] = showSmartFilters
     ? [
-        ...(qParam?.trim() ? [{ label: `Text: “${qParam.trim()}”`, removeHref: listHref(withFilter(currentQuery, "q", null)) }] : []),
         ...smartFilters.reporters.map((id) => ({ label: `Reporter: ${personName(id)}`, removeHref: listHref(togglePerson(currentQuery, REPORTER_PARAM, id)) })),
         ...smartFilters.assignees.map((id) => ({ label: `Assignee: ${personName(id)}`, removeHref: listHref(togglePerson(currentQuery, ASSIGNEE_PARAM, id)) })),
         ...(smartFilters.at ? [{ label: atChipLabels[smartFilters.at], removeHref: listHref(withFilter(currentQuery, AT_PARAM, null)) }] : []),
-        ...(mineFilter === "created" || mineFilter === "reported" ? [{ label: "Reported by me", removeHref: mineHref("created") }] : []),
-        ...(mineFilter === "assigned" ? [{ label: "Assigned to me", removeHref: mineHref("assigned") }] : []),
         ...(myWorkOn ? [{ label: "My Work", removeHref: myWorkHref }] : []),
         ...(smartFilters.pr ? [{ label: prLabels[smartFilters.pr], removeHref: listHref(withFilter(currentQuery, PR_PARAM, null)) }] : []),
         ...(smartFilters.updated ? [{ label: `Updated ${updatedLabels[smartFilters.updated].toLowerCase()}`, removeHref: listHref(withFilter(currentQuery, UPDATED_PARAM, null)) }] : []),
       ]
     : [];
-  const clearSmartHref = (() => {
-    const next = new URLSearchParams(currentQuery);
-    for (const key of ["q", "mine", MY_WORK_PARAM, REPORTER_PARAM, ASSIGNEE_PARAM, AT_PARAM, PR_PARAM, UPDATED_PARAM, "page"]) next.delete(key);
-    return listHref(next);
-  })();
   // This list's address, for saving it as a favourite.
   const favouriteHref = listHref(withFilter(currentQuery, "page", null));
   // What the Filter button names while closed: anything beyond the default "All".
@@ -1085,11 +1077,20 @@ export async function IssuesList({
           <IssueFilters compact tagTypes={tagTypes} platforms={platforms} milestones={milestones} areas={areas} shortcutsEnabled={shortcutsEnabled}
             stageCounts={isDeletedView ? undefined : { confirming: confirmingCount, ready: readyCount }}
             people={showSmartFilters ? people : undefined}
-            selectedReporters={smartFilters.reporters} selectedAssignees={smartFilters.assignees} />
+            selectedReporters={smartFilters.reporters} selectedAssignees={smartFilters.assignees}
+            extraChips={smartChips} />
         </Suspense>
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
           {/* The issue tabs' filter, beside the search: a standard Filter button and menu. */}
           {!isIdeasView && filterGroups.length > 0 ? <ToolbarFilterMenu groups={filterGroups} summary={filterSummary} /> : null}
+          {showSmartFilters ? (
+            <SmartFilterBar
+              hasFilters={smartChips.length > 0 || Boolean(qParam?.trim()) || Boolean(mineFilter)}
+              currentHref={favouriteHref}
+              projectSlug={slug}
+              suggestedName={[...(qParam?.trim() ? [`“${qParam.trim()}”`] : []), ...smartChips.map((chip) => chip.label.replace(/^(Reporter|Assignee): /, ""))].join(", ")}
+            />
+          ) : null}
           {finishedWatched > 0 ? <UnwatchFinishedButton count={finishedWatched} /> : null}
           <IssuesToolsToggle
             active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || selectedMilestone)}
@@ -1099,16 +1100,6 @@ export async function IssuesList({
           {!isDeletedView ? <IdeaChat projectId={project.id} className={isFirstRun ? "" : "md:hidden"} /> : null}
         </div>
       </div>
-      {showSmartFilters ? (
-        <SmartFilterBar
-          chips={smartChips}
-          clearHref={clearSmartHref}
-          currentHref={favouriteHref}
-          projectSlug={slug}
-          resultCount={totalCount}
-          suggestedName={smartChips.map((chip) => chip.label.replace(/^(Reporter|Assignee|Text): /, "")).join(", ")}
-        />
-      ) : null}
     </>
   );
 

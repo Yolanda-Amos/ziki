@@ -32,16 +32,15 @@ function writeFavourites(slug: string, list: Favourite[]) {
 }
 
 /**
- * Under the issue toolbar: what the list is filtered by, as chips that each
- * remove one filter, and Favourites, the searches you saved to come back to.
+ * Favourites, beside the toolbar's Filter button: the searches you saved to
+ * come back to, and a way to save the one on screen.
  */
-export function SmartFilterBar({ chips, clearHref, currentHref, projectSlug, resultCount, suggestedName }: {
-  chips: SmartFilterChip[];
-  clearHref: string;
+export function SmartFilterBar({ hasFilters, currentHref, projectSlug, suggestedName }: {
+  /** A search or filter is on, so there is something to save. */
+  hasFilters: boolean;
   /** This list's address, saved as a favourite. */
   currentHref: string;
   projectSlug: string;
-  resultCount: number;
   suggestedName: string;
 }) {
   const [favourites, setFavourites] = useState<Favourite[]>([]);
@@ -84,7 +83,7 @@ export function SmartFilterBar({ chips, clearHref, currentHref, projectSlug, res
   }, [open]);
 
   const isSaved = favourites.some((favourite) => favourite.href === currentHref);
-  const canSave = chips.length > 0 && !isSaved;
+  const canSave = hasFilters && !isSaved;
 
   function save() {
     const label = name.trim() || suggestedName || "Saved search";
@@ -109,33 +108,7 @@ export function SmartFilterBar({ chips, clearHref, currentHref, projectSlug, res
   ];
 
   return (
-    <div className="smart-filter-bar flex flex-wrap items-center gap-2 print:hidden" aria-label="Active filters and favourites">
-      {chips.length > 0 ? (
-        <>
-          <span className="text-[12px] font-semibold text-zk-muted">
-            {resultCount} {resultCount === 1 ? "issue" : "issues"} ·
-          </span>
-          <ul className="m-0 flex list-none flex-wrap items-center gap-1.5 p-0">
-            {chips.map((chip) => (
-              <li key={chip.label}>
-                <Link
-                  href={chip.removeHref}
-                  aria-label={`Remove filter ${chip.label}`}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-zk-accent/30 bg-zk-tint pl-3 pr-2 text-[12px] font-semibold text-zk-accent hover:border-zk-accent"
-                >
-                  {chip.label}
-                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <Link href={clearHref} className="text-[12px] font-semibold text-zk-muted underline-offset-2 hover:text-zk-text hover:underline">
-            Clear all
-          </Link>
-        </>
-      ) : null}
-
-      <div className="relative ml-auto">
+    <div className="smart-filter-bar relative shrink-0 print:hidden">
         <button
           ref={buttonRef}
           type="button"
@@ -222,7 +195,6 @@ export function SmartFilterBar({ chips, clearHref, currentHref, projectSlug, res
             </ul>
           </div>
         ) : null}
-      </div>
     </div>
   );
 }
