@@ -989,40 +989,49 @@ export async function IssuesList({
   ];
   // The Filters panel's columns: what the issue is and where it's at; whose it is.
   const smartColumns: SmartFilterColumn[] = [
-    { title: "Filters", groups: smartGroups.filter((group) => group.label !== "People") },
+    {
+      title: "Filters",
+      groups: [
+        { label: "Where it's at", options: AT_OPTIONS.map((at, index) => ({ label: atLabels[at], count: atCounts[index] ?? 0, param: AT_PARAM, value: at, kind: "single" as const })) },
+        { label: "Pull request", options: PR_OPTIONS.map((pr, index) => ({ label: prLabels[pr], count: prCounts[index] ?? 0, param: PR_PARAM, value: pr, kind: "single" as const })) },
+        { label: "Created", options: UPDATED_OPTIONS.map((updated, index) => ({ label: updatedLabels[updated], count: updatedCounts[index] ?? 0, param: UPDATED_PARAM, value: updated, kind: "single" as const })) },
+      ],
+    },
     {
       title: "Mine",
       groups: [
-        ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
-        ...smartGroups.filter((group) => group.label === "People").map((group) => ({ ...group, label: "My issues" })),
+        // All / Rejected / Duplicates: the All tab's lists, one always picked.
+        ...(allSelected && !isDeletedView
+          ? [{ label: "Show", options: ALL_FILTERS.map(({ value, label }) => ({ label, count: allFilterCount(value), param: "status", value, kind: "radio" as const })) }]
+          : []),
+        ...(userId
+          ? [{
+              label: "My issues",
+              options: [
+                { label: "Reported by me", count: createdByMeCount, param: "mine", value: "created", kind: "single" as const },
+                { label: "Assigned to me", count: assignedToMeCount, param: "mine", value: "assigned", kind: "single" as const },
+                { label: "My Work", count: myWorkCount, param: MY_WORK_PARAM, value: "1", kind: "single" as const },
+              ],
+            }]
+          : []),
       ],
     },
     {
       title: "People",
       groups: [],
-      // Everyone who reported or holds an issue here; picking a name toggles it (several mean any of them).
+      // Everyone who reported or holds an issue here; several picked mean any of them.
       pickers: [
         {
           label: "Reporter",
           options: people.filter((person) => person.reported > 0)
             .sort((a, b) => b.reported - a.reported || a.name.localeCompare(b.name))
-            .map((person) => ({
-              label: person.name,
-              count: person.reported,
-              href: listHref(togglePerson(currentQuery, REPORTER_PARAM, person.id)),
-              selected: smartFilters.reporters.includes(person.id),
-            })),
+            .map((person) => ({ label: person.name, count: person.reported, param: REPORTER_PARAM, value: person.id, kind: "multi" as const })),
         },
         {
           label: "Assignee",
           options: people.filter((person) => person.assigned > 0)
             .sort((a, b) => b.assigned - a.assigned || a.name.localeCompare(b.name))
-            .map((person) => ({
-              label: person.name,
-              count: person.assigned,
-              href: listHref(togglePerson(currentQuery, ASSIGNEE_PARAM, person.id)),
-              selected: smartFilters.assignees.includes(person.id),
-            })),
+            .map((person) => ({ label: person.name, count: person.assigned, param: ASSIGNEE_PARAM, value: person.id, kind: "multi" as const })),
         },
       ],
     },
@@ -1126,6 +1135,7 @@ export async function IssuesList({
             <SmartFilterPanel
               columns={smartColumns}
               summary={filterSummary}
+              currentQuery={currentQuery}
               hasFilters={smartChips.length > 0 || Boolean(qParam?.trim()) || Boolean(mineFilter)}
               currentHref={favouriteHref}
               projectSlug={slug}
