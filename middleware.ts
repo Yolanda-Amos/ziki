@@ -92,7 +92,10 @@ export default auth((req) => {
     url.searchParams.set("callbackUrl", pathWithoutBase === "/" || isAuthPage ? "/demo/issues/all" : callbackPath(pathWithoutBase, req.nextUrl) + req.nextUrl.search);
     return NextResponse.redirect(url);
   }
-  if (demoAutoSignIn && isLoggedIn && (pathWithoutBase === "/" || isAuthPage || pathWithoutBase === "/home")) {
+  // Only the Demo workspace's issue and idea lists are open in the demo; any
+  // other page (issue detail, settings, sign-out…) goes back to the list.
+  const isDemoList = /^\/demo\/(issues(\/(all|open|in-progress|done|merge|live|error|possibly-delivered|your-call|closed|rejected|duplicates|finished))?|ideas(\/(rejected|drafts))?)\/?$/.test(pathWithoutBase);
+  if (demoAutoSignIn && isLoggedIn && !isDemoList && !pathWithoutBase.startsWith("/api/")) {
     return NextResponse.redirect(new URL("/demo/issues/all", req.nextUrl.origin));
   }
 

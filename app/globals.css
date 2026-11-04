@@ -497,3 +497,14 @@ body:has([data-app-shell]) {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.06); }
 }
+
+/* Demo deployments (DEMO_AUTO_SIGNIN=1): only the issue list works. Links on
+   the page that lead anywhere else (issue rows, people, settings) do nothing;
+   the issue tabs, filters, search and favourites stay live. */
+[data-demo-locked] main a[href]:not([href^="/demo/issues"]):not([href^="/demo/ideas"]):not([href^="#"]),
+[data-demo-locked] main a[href^="/demo/issues/new"],
+[data-demo-locked] main a[href^="/demo/issues/history"],
+[data-demo-locked] main a[href^="/demo/issues/bulk-close"] {
+  pointer-events: none;
+  cursor: default;
+}

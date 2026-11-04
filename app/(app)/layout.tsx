@@ -114,11 +114,17 @@ export default async function AppLayout({
     console.error("[layout] shortcut setting failed", error);
   }
 
+  // Demo deployments (DEMO_AUTO_SIGNIN=1) show only the issue list: the rest of
+  // the navigation stays visible but can't be clicked or focused.
+  const demoLocked = process.env.DEMO_AUTO_SIGNIN === "1";
+  const lockProps = demoLocked ? { inert: true, "data-demo-lock": "" } : {};
+
   return (
     // data-app-shell switches the page (and its dialogs and toasts) to Inter; see globals.css.
-    <div data-app-shell="" className="flex min-h-screen flex-col bg-zk-bg">
+    <div data-app-shell="" data-demo-locked={demoLocked ? "" : undefined} className="flex min-h-screen flex-col bg-zk-bg">
       <SkipLink />
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="contents" {...lockProps}>
         <AppHeader
           userName={user.name ?? user.email}
           userImage={user.image}
@@ -134,6 +140,7 @@ export default async function AppLayout({
           reportFormUrl={REPORT_FORM_URL}
           organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
         />
+        </div>
         <main
           id={MAIN_CONTENT_ID}
           /* Focusable so the skip link and the route announcer can move focus
@@ -146,7 +153,9 @@ export default async function AppLayout({
         </main>
       </div>
       {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it. */}
-      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} />
+      <div className="contents" {...lockProps}>
+        <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} />
+      </div>
       <FocusMainOnNavigate />
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
