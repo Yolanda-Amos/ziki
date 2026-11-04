@@ -9,7 +9,7 @@ import type { Prisma } from "@prisma/client";
  * - `at`: where the issue is in the pipeline, including the questions people
  *   keep asking: "which of mine are stuck?" and "which are live in production?".
  * - `pr`: has a pull request or not.
- * - `updated`: last activity within a window.
+ * - `updated`: created within a window (the param name stays short).
  *
  * Each filter sets a plain field on the query (never `AND`/`OR`), so the status
  * tabs and their counts respect it too.
@@ -99,7 +99,8 @@ export function hasSmartFilters(filters: SmartFilters): boolean {
 export function atWhere(at: AtFilter, now: Date): Prisma.BugWhereInput {
   switch (at) {
     case "stuck":
-      return { substatus: "requires_confirmation", updatedAt: { lt: new Date(now.getTime() - STUCK_AFTER_MS) } };
+      // Still awaiting confirmation two days after it became an issue.
+      return { substatus: "requires_confirmation", createdAt: { lt: new Date(now.getTime() - STUCK_AFTER_MS) } };
     case "unclaimed":
       return { substatus: "open", claims: { none: { status: { in: ["active", "offered"] }, releasedAt: null } } };
     case "unreviewed":
@@ -126,9 +127,9 @@ export function applySmartFilters(where: Prisma.BugWhereInput, filters: SmartFil
   if (filters.pr === "no") where.pullRequestUrl = null;
   if (filters.updated) {
     const since = new Date(now.getTime() - UPDATED_MS[filters.updated]);
-    // "stuck" already bounds updatedAt from above; keep both bounds.
-    const current = where.updatedAt;
-    where.updatedAt = current && typeof current === "object" && !(current instanceof Date)
+    // "stuck" already bounds createdAt from above; keep both bounds.
+    const current = where.createdAt;
+    where.createdAt = current && typeof current === "object" && !(current instanceof Date)
       ? { ...current, gte: since }
       : { gte: since };
   }

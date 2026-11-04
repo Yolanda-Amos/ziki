@@ -973,7 +973,7 @@ export async function IssuesList({
           })),
         },
         {
-          label: "Last updated",
+          label: "Created",
           options: UPDATED_OPTIONS.map((updated, index) => ({
             label: updatedLabels[updated],
             count: updatedCounts[index] ?? 0,
@@ -1035,7 +1035,7 @@ export async function IssuesList({
         ...(smartFilters.at ? [{ label: atChipLabels[smartFilters.at], removeHref: listHref(withFilter(currentQuery, AT_PARAM, null)) }] : []),
         ...(myWorkOn ? [{ label: "My Work", removeHref: myWorkHref }] : []),
         ...(smartFilters.pr ? [{ label: prLabels[smartFilters.pr], removeHref: listHref(withFilter(currentQuery, PR_PARAM, null)) }] : []),
-        ...(smartFilters.updated ? [{ label: `Updated ${updatedLabels[smartFilters.updated].toLowerCase()}`, removeHref: listHref(withFilter(currentQuery, UPDATED_PARAM, null)) }] : []),
+        ...(smartFilters.updated ? [{ label: `Created ${updatedLabels[smartFilters.updated].toLowerCase()}`, removeHref: listHref(withFilter(currentQuery, UPDATED_PARAM, null)) }] : []),
       ]
     : [];
   // This list's address, for saving it as a favourite.

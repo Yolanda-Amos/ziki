@@ -78,15 +78,17 @@ function PeoplePicker({ picker, optionClass, labelClass, onPick }: {
     ? picker.options.filter((option) => option.label.toLowerCase().includes(typed)).slice(0, 8)
     : [...selected, ...rest.slice(0, Math.max(0, PICKER_TOP - selected.length))];
   const inputId = `picker-${picker.label.toLowerCase()}`;
+  const noun = picker.label.toLowerCase();
+  const article = /^[aeiou]/.test(noun) ? "an" : "a";
   return (
     <div className="mb-2">
       <p className={labelClass}>{picker.label}</p>
-      <label htmlFor={inputId} className="sr-only">Find a {picker.label.toLowerCase()}</label>
+      <label htmlFor={inputId} className="sr-only">Find {article} {noun}</label>
       <input
         id={inputId}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder={`Find a ${picker.label.toLowerCase()}…`}
+        placeholder={`Find ${article} ${noun}…`}
         className="mx-2 mb-1 h-8 w-[calc(100%-1rem)] rounded-lg border border-zk-border bg-zk-surface px-2.5 text-[13px] text-zk-text outline-none placeholder:text-zk-muted focus:border-electric-blue"
       />
       {shown.length === 0 ? <p className="m-0 px-2 py-1 text-[12px] text-zk-muted">No one matches.</p> : null}
