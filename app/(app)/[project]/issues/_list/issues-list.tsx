@@ -122,7 +122,7 @@ import {
   withFilter,
   type SmartFilters,
 } from "@/lib/smart-filters";
-import { SmartFilterBar, type SmartFilterChip } from "@/components/smart-filter-bar";
+import { SmartFilterPanel, type SmartFilterChip, type SmartFilterColumn } from "@/components/smart-filter-panel";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issues" };
@@ -987,6 +987,17 @@ export async function IssuesList({
     ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
     ...(showSmartFilters ? smartGroups : myWorkFilter.length ? [{ options: myWorkFilter }] : []),
   ];
+  // The Filters panel's columns: what the issue is and where it's at; whose it is.
+  const smartColumns: SmartFilterColumn[] = [
+    { title: "Filters", groups: smartGroups.filter((group) => group.label !== "People") },
+    {
+      title: "People",
+      groups: [
+        ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
+        ...smartGroups.filter((group) => group.label === "People"),
+      ],
+    },
+  ];
   // The chips under the toolbar: one per active filter, each with its own remove link.
   const smartChips: SmartFilterChip[] = showSmartFilters
     ? [
@@ -1082,15 +1093,16 @@ export async function IssuesList({
         </Suspense>
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
           {/* The issue tabs' filter, beside the search: a standard Filter button and menu. */}
-          {!isIdeasView && filterGroups.length > 0 ? <ToolbarFilterMenu groups={filterGroups} summary={filterSummary} /> : null}
           {showSmartFilters ? (
-            <SmartFilterBar
+            <SmartFilterPanel
+              columns={smartColumns}
+              summary={filterSummary}
               hasFilters={smartChips.length > 0 || Boolean(qParam?.trim()) || Boolean(mineFilter)}
               currentHref={favouriteHref}
               projectSlug={slug}
               suggestedName={[...(qParam?.trim() ? [`“${qParam.trim()}”`] : []), ...smartChips.map((chip) => chip.label.replace(/^(Reporter|Assignee): /, ""))].join(", ")}
             />
-          ) : null}
+          ) : !isIdeasView && filterGroups.length > 0 ? <ToolbarFilterMenu groups={filterGroups} summary={filterSummary} /> : null}
           {finishedWatched > 0 ? <UnwatchFinishedButton count={finishedWatched} /> : null}
           <IssuesToolsToggle
             active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || selectedMilestone)}
