@@ -83,6 +83,19 @@ export default auth((req) => {
     PROJECT_WORK_PATH.test(pathWithoutBase) &&
     (req.headers.get("authorization") ?? "").startsWith("Bearer ");
 
+  // Demo deployments (DEMO_AUTO_SIGNIN=1): no login screen. Every visitor is
+  // signed in as the demo owner and lands on the Demo workspace's issues.
+  const demoAutoSignIn = process.env.DEMO_AUTO_SIGNIN === "1";
+  if (demoAutoSignIn && pathWithoutBase.startsWith("/demo-signin")) return NextResponse.next();
+  if (demoAutoSignIn && !isLoggedIn && (!isPublic || pathWithoutBase === "/" || isAuthPage)) {
+    const url = new URL("/demo-signin", req.nextUrl.origin);
+    url.searchParams.set("callbackUrl", pathWithoutBase === "/" || isAuthPage ? "/demo/issues/all" : callbackPath(pathWithoutBase, req.nextUrl) + req.nextUrl.search);
+    return NextResponse.redirect(url);
+  }
+  if (demoAutoSignIn && isLoggedIn && (pathWithoutBase === "/" || isAuthPage || pathWithoutBase === "/home")) {
+    return NextResponse.redirect(new URL("/demo/issues/all", req.nextUrl.origin));
+  }
+
   if (!isLoggedIn && !isPublic && !isAgentWorkFeed) {
     const url = new URL(
       BASE_PATH ? `${BASE_PATH}/login` : "/login",

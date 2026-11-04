@@ -38,6 +38,10 @@ const DATE_FIELDS = ["convertedAt", "rejectedAt", "archivedAt", "closedAt", "awa
 export function assertLocalDatabase(url: string | undefined): void {
   if (!url) throw new Error("DATABASE_URL is not set.");
   const host = new URL(url).hostname;
+  // A dedicated demo database (a throwaway deployment of the proposal) is
+  // allowed only when named exactly, never by default.
+  const demoHost = process.env.DEMO_FIXTURES_HOST?.trim();
+  if (demoHost && demoHost === host) return;
   if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
     throw new Error(`Refusing to load fixtures into a non-local database (${host}).`);
   }

@@ -43,7 +43,14 @@ type TagType = { id: string; name: string; isActive?: boolean };
 
 type Suggestion =
   | { kind: "tag"; id: string; name: string }
-  | { kind: "issue"; id: string; number: number; title: string; path: string };
+  | { kind: "issue"; id: string; number: number; title: string; path: string }
+  | { kind: "person"; id: string; role: "reporter" | "assignee"; name: string; count: number }
+  | { kind: "text"; id: string; text: string };
+
+/** Someone who reported or holds an issue in this project (smart search). */
+export type SearchPerson = { id: string; name: string; reported: number; assigned: number };
+/** People offered per keystroke, before the title matches. */
+const MAX_PEOPLE_SUGGESTIONS = 3;
 
 /** Long enough not to query on every keystroke, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -129,7 +136,14 @@ export function IssueFilters({
   shortcutsEnabled = true,
   stageCounts,
   compact = false,
+  people,
+  selectedReporters = [],
+  selectedAssignees = [],
 }: {
+  /** Smart search: typing a name offers it as a Reporter or Assignee filter. */
+  people?: SearchPerson[];
+  selectedReporters?: string[];
+  selectedAssignees?: string[];
   tagTypes?: TagType[];
   platforms?: PlatformOption[];
   /** #289: open milestones first; closed ones stay selectable for history. */
@@ -359,7 +373,40 @@ export function IssueFilters({
           path: issue.path,
         }))
       : [];
-  const suggestions = [...tagSuggestions, ...titleSuggestions];
+  // Smart search (#filter-by-reporter): a typed name is offered as a person
+  // filter first, then as plain text to look for in titles and descriptions,
+  // so "daniel" can mean "issues Daniel reported", not just "mentions Daniel".
+  const typed = text.trim();
+  const typedLower = typed.toLowerCase();
+  const matchedPeople = open && people && typed.length > 0
+    ? people
+        .filter((person) => person.name.toLowerCase().split(/\s+/).some((part) => part.startsWith(typedLower)) || person.name.toLowerCase().includes(typedLower))
+        .slice(0, MAX_PEOPLE_SUGGESTIONS)
+    : [];
+  const personSuggestions: Suggestion[] = matchedPeople.flatMap((person): Suggestion[] => [
+    ...(person.reported > 0 && !selectedReporters.includes(person.id)
+      ? [{ kind: "person" as const, id: `r-${person.id}`, role: "reporter" as const, name: person.name, count: person.reported }]
+      : []),
+    ...(person.assigned > 0 && !selectedAssignees.includes(person.id)
+      ? [{ kind: "person" as const, id: `a-${person.id}`, role: "assignee" as const, name: person.name, count: person.assigned }]
+      : []),
+  ]);
+  const textSuggestion: Suggestion[] = personSuggestions.length > 0 ? [{ kind: "text", id: "text", text: typed }] : [];
+  const suggestions = [...personSuggestions, ...textSuggestion, ...tagSuggestions, ...titleSuggestions];
+
+  function addPerson(suggestion: Extract<Suggestion, { kind: "person" }>) {
+    const key = suggestion.role === "reporter" ? "reporter" : "assignee";
+    const userId = suggestion.id.slice(2);
+    const current = suggestion.role === "reporter" ? selectedReporters : selectedAssignees;
+    // The typed text was only for finding the person, so put the real search back.
+    const restore = queryBeforeEditingRef.current;
+    setText(restore);
+    skipLiveRef.current = restore;
+    setOpen(false);
+    setActive(-1);
+    updateMany({ [key]: [...current, userId].join(","), q: restore }, livePushedRef.current);
+    livePushedRef.current = false;
+  }
 
   function addTag(name: string) {
     // The typed text was only for finding the tag, so put the real search back.
@@ -390,6 +437,16 @@ export function IssueFilters({
   function pickSuggestion(suggestion: Suggestion) {
     if (suggestion.kind === "tag") {
       addTag(suggestion.name);
+      return;
+    }
+    if (suggestion.kind === "person") {
+      addPerson(suggestion);
+      return;
+    }
+    if (suggestion.kind === "text") {
+      setOpen(false);
+      setActive(-1);
+      applyQueryNow();
       return;
     }
     setOpen(false);
@@ -499,7 +556,7 @@ export function IssueFilters({
                 aria-activedescendant={active >= 0 && suggestions[active] ? `${listId}-${active}` : undefined}
                 autoComplete="off"
                 value={text}
-                placeholder={compact ? "Search issues…" : "Search, or type a tag like Design"}
+                placeholder={compact ? (people ? "Search issues or people…" : "Search issues…") : "Search, or type a tag like Design"}
                 className="min-w-0 flex-1 border-0 bg-transparent text-sm text-zk-text outline-none placeholder:text-zk-muted"
                 onChange={(event) => { setText(event.target.value); setOpen(true); setActive(-1); }}
                 onFocus={() => { setIsFocused(true); queryBeforeEditingRef.current = currentQuery; livePushedRef.current = false; setOpen(true); }}
@@ -538,7 +595,11 @@ export function IssueFilters({
                     onClick={() => pickSuggestion(suggestion)}
                     className={`flex cursor-pointer items-center justify-between gap-3 px-3.5 py-2.5 ${index === active ? "bg-zk-tint text-zk-accent" : "text-zk-text"}`}
                   >
-                    {suggestion.kind === "tag" ? (
+                    {suggestion.kind === "person" ? (
+                      <><span className="min-w-0 truncate"><span className="text-zk-muted">{suggestion.role === "reporter" ? "Reporter:" : "Assignee:"}</span> <span className="font-semibold">{suggestion.name}</span></span><span className="shrink-0 text-xs text-zk-muted tabular-nums">{suggestion.count} {suggestion.role === "reporter" ? "reported" : "assigned"}</span></>
+                    ) : suggestion.kind === "text" ? (
+                      <><span className="min-w-0 truncate"><span className="text-zk-muted">Text:</span> “{suggestion.text}”</span><span className="shrink-0 text-xs text-zk-muted">Search titles</span></>
+                    ) : suggestion.kind === "tag" ? (
                       <><span className="font-semibold">{suggestion.name}</span><span className="shrink-0 text-xs text-zk-muted">Filter by tag</span></>
                     ) : (
                       <><span className="min-w-0 truncate"><span className="tabular-nums text-zk-muted">#{suggestion.number}</span> {suggestion.title}</span><span className="shrink-0 text-xs text-zk-muted">Open issue</span></>

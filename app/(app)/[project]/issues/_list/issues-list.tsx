@@ -103,6 +103,26 @@ import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/
 import { issueHref } from "@/lib/issue-ref";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
+import {
+  ASSIGNEE_PARAM,
+  AT_OPTIONS,
+  AT_PARAM,
+  PR_OPTIONS,
+  PR_PARAM,
+  REPORTER_PARAM,
+  UPDATED_OPTIONS,
+  UPDATED_PARAM,
+  applySmartFilters,
+  atChipLabels,
+  atLabels,
+  parseSmartFilters,
+  prLabels,
+  togglePerson,
+  updatedLabels,
+  withFilter,
+  type SmartFilters,
+} from "@/lib/smart-filters";
+import { SmartFilterBar, type SmartFilterChip } from "@/components/smart-filter-bar";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issues" };
@@ -383,6 +403,12 @@ export async function IssuesList({
     const asNumber = parseIssueNumberQuery(qParam);
     if (asNumber !== null) where.OR.push({ number: asNumber });
   }
+  // Smart search filters: reporter, assignee, pipeline position, PR, last updated.
+  // The snapshot before them lets each Filter-menu option count its own result.
+  const smartNow = new Date();
+  const smartFilters = parseSmartFilters(params);
+  const preSmartWhere: Prisma.BugWhereInput = { ...where };
+  applySmartFilters(where, smartFilters, smartNow);
 
   let totalCount = 0;
   try {
@@ -872,14 +898,125 @@ export async function IssuesList({
     ? ALL_FILTERS.map(({ value, label }) => ({ label, count: allFilterCount(value), href: statusHref(value), selected: statusParam === value }))
     : [];
   const myWorkFilter: ToolbarFilterOption[] = myWorkCount > 0 || myWorkOn ? [{ label: "My Work", count: myWorkCount, href: myWorkHref, selected: myWorkOn }] : [];
+  // Smart search: each option counts what the list would show with it picked
+  // (the other filters stay), so nobody picks a filter that empties the list.
+  const smartCount = (changes: Partial<SmartFilters>, extra: Prisma.BugWhereInput = {}) => {
+    const next: Prisma.BugWhereInput = { ...preSmartWhere, ...extra };
+    applySmartFilters(next, { ...smartFilters, ...changes }, smartNow);
+    return loadOrEmpty("smart filter count", () => prisma.bug.count({ where: next }), 0);
+  };
+  const showSmartFilters = !isIdeasView && !isDeletedView && !isYourCallView;
+  const [atCounts, prCounts, updatedCounts, createdByMeCount, assignedToMeCount] = showSmartFilters
+    ? await Promise.all([
+        Promise.all(AT_OPTIONS.map((at) => smartCount({ at }))),
+        Promise.all(PR_OPTIONS.map((pr) => smartCount({ pr }))),
+        Promise.all(UPDATED_OPTIONS.map((updated) => smartCount({ updated }))),
+        userId ? smartCount({}, { reporterId: userId }) : Promise.resolve(0),
+        userId ? smartCount({}, { assigneeId: userId }) : Promise.resolve(0),
+      ])
+    : [[], [], [], 0, 0];
+  // Everyone who reported or holds an issue here, for the search box's
+  // "Reporter: …" and "Assignee: …" suggestions and for naming the chips.
+  const people = showSmartFilters
+    ? await loadOrEmpty("people", async () => {
+        const scope: Prisma.BugWhereInput = { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false };
+        const [reported, assigned] = await Promise.all([
+          prisma.bug.groupBy({ by: ["reporterId"], where: scope, _count: { _all: true } }),
+          prisma.bug.groupBy({ by: ["assigneeId"], where: { ...scope, assigneeId: { not: null } }, _count: { _all: true } }),
+        ]);
+        const reportedBy = new Map(reported.map((row) => [row.reporterId, row._count._all]));
+        const assignedTo = new Map(assigned.map((row) => [row.assigneeId as string, row._count._all]));
+        const ids = [...new Set([...reportedBy.keys(), ...assignedTo.keys()])].slice(0, 500);
+        const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } });
+        return users
+          .map((person) => ({
+            id: person.id,
+            name: person.name?.trim() || person.email?.split("@")[0] || "Unnamed",
+            reported: reportedBy.get(person.id) ?? 0,
+            assigned: assignedTo.get(person.id) ?? 0,
+          }))
+          .sort((a, b) => b.reported + b.assigned - (a.reported + a.assigned) || a.name.localeCompare(b.name));
+      }, [] as { id: string; name: string; reported: number; assigned: number }[])
+    : [];
+  const personName = (id: string) => people.find((person) => person.id === id)?.name ?? "Someone";
+  const mineHref = (value: "created" | "assigned") => listHref(withFilter(currentQuery, "mine", mineFilter === value ? null : value));
+  const smartGroups: ToolbarFilterGroup[] = showSmartFilters
+    ? [
+        {
+          label: "Where it's at",
+          options: AT_OPTIONS.map((at, index) => ({
+            label: atLabels[at],
+            count: atCounts[index] ?? 0,
+            href: listHref(withFilter(currentQuery, AT_PARAM, smartFilters.at === at ? null : at)),
+            selected: smartFilters.at === at,
+          })),
+        },
+        {
+          label: "People",
+          options: [
+            ...(userId
+              ? [
+                  { label: "Reported by me", count: createdByMeCount, href: mineHref("created"), selected: mineFilter === "created" || mineFilter === "reported" },
+                  { label: "Assigned to me", count: assignedToMeCount, href: mineHref("assigned"), selected: mineFilter === "assigned" },
+                ]
+              : []),
+            ...myWorkFilter,
+          ],
+        },
+        {
+          label: "Pull request",
+          options: PR_OPTIONS.map((pr, index) => ({
+            label: prLabels[pr],
+            count: prCounts[index] ?? 0,
+            href: listHref(withFilter(currentQuery, PR_PARAM, smartFilters.pr === pr ? null : pr)),
+            selected: smartFilters.pr === pr,
+          })),
+        },
+        {
+          label: "Last updated",
+          options: UPDATED_OPTIONS.map((updated, index) => ({
+            label: updatedLabels[updated],
+            count: updatedCounts[index] ?? 0,
+            href: listHref(withFilter(currentQuery, UPDATED_PARAM, smartFilters.updated === updated ? null : updated)),
+            selected: smartFilters.updated === updated,
+          })),
+        },
+      ]
+    : [];
   const filterGroups: ToolbarFilterGroup[] = [
     ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
-    ...(myWorkFilter.length ? [{ options: myWorkFilter }] : []),
+    ...(showSmartFilters ? smartGroups : myWorkFilter.length ? [{ options: myWorkFilter }] : []),
   ];
+  // The chips under the toolbar: one per active filter, each with its own remove link.
+  const smartChips: SmartFilterChip[] = showSmartFilters
+    ? [
+        ...(qParam?.trim() ? [{ label: `Text: “${qParam.trim()}”`, removeHref: listHref(withFilter(currentQuery, "q", null)) }] : []),
+        ...smartFilters.reporters.map((id) => ({ label: `Reporter: ${personName(id)}`, removeHref: listHref(togglePerson(currentQuery, REPORTER_PARAM, id)) })),
+        ...smartFilters.assignees.map((id) => ({ label: `Assignee: ${personName(id)}`, removeHref: listHref(togglePerson(currentQuery, ASSIGNEE_PARAM, id)) })),
+        ...(smartFilters.at ? [{ label: atChipLabels[smartFilters.at], removeHref: listHref(withFilter(currentQuery, AT_PARAM, null)) }] : []),
+        ...(mineFilter === "created" || mineFilter === "reported" ? [{ label: "Reported by me", removeHref: mineHref("created") }] : []),
+        ...(mineFilter === "assigned" ? [{ label: "Assigned to me", removeHref: mineHref("assigned") }] : []),
+        ...(myWorkOn ? [{ label: "My Work", removeHref: myWorkHref }] : []),
+        ...(smartFilters.pr ? [{ label: prLabels[smartFilters.pr], removeHref: listHref(withFilter(currentQuery, PR_PARAM, null)) }] : []),
+        ...(smartFilters.updated ? [{ label: `Updated ${updatedLabels[smartFilters.updated].toLowerCase()}`, removeHref: listHref(withFilter(currentQuery, UPDATED_PARAM, null)) }] : []),
+      ]
+    : [];
+  const clearSmartHref = (() => {
+    const next = new URLSearchParams(currentQuery);
+    for (const key of ["q", "mine", MY_WORK_PARAM, REPORTER_PARAM, ASSIGNEE_PARAM, AT_PARAM, PR_PARAM, UPDATED_PARAM, "page"]) next.delete(key);
+    return listHref(next);
+  })();
+  // This list's address, for saving it as a favourite.
+  const favouriteHref = listHref(withFilter(currentQuery, "page", null));
   // What the Filter button names while closed: anything beyond the default "All".
   const filterSummary = [
     ...allTabFilters.filter((option) => option.selected && option.label !== "All").map((option) => option.label),
     ...(myWorkOn ? ["My Work"] : []),
+    ...(smartFilters.at ? [atChipLabels[smartFilters.at]] : []),
+    ...(mineFilter === "created" || mineFilter === "reported" ? ["Reported by me"] : []),
+    ...(mineFilter === "assigned" ? ["Assigned to me"] : []),
+    ...(smartFilters.pr ? [prLabels[smartFilters.pr]] : []),
+    ...(smartFilters.updated ? [updatedLabels[smartFilters.updated]] : []),
   ].join(" · ");
   // Only a status tab is picked (no search or other filter): an empty list then
   // just means that tab is empty, so the empty state names the tab.
@@ -946,7 +1083,9 @@ export async function IssuesList({
         </div>
         <Suspense fallback={<div className="h-8 w-36 rounded-lg bg-zk-chip" />}>
           <IssueFilters compact tagTypes={tagTypes} platforms={platforms} milestones={milestones} areas={areas} shortcutsEnabled={shortcutsEnabled}
-            stageCounts={isDeletedView ? undefined : { confirming: confirmingCount, ready: readyCount }} />
+            stageCounts={isDeletedView ? undefined : { confirming: confirmingCount, ready: readyCount }}
+            people={showSmartFilters ? people : undefined}
+            selectedReporters={smartFilters.reporters} selectedAssignees={smartFilters.assignees} />
         </Suspense>
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
           {/* The issue tabs' filter, beside the search: a standard Filter button and menu. */}
@@ -960,6 +1099,16 @@ export async function IssuesList({
           {!isDeletedView ? <IdeaChat projectId={project.id} className={isFirstRun ? "" : "md:hidden"} /> : null}
         </div>
       </div>
+      {showSmartFilters ? (
+        <SmartFilterBar
+          chips={smartChips}
+          clearHref={clearSmartHref}
+          currentHref={favouriteHref}
+          projectSlug={slug}
+          resultCount={totalCount}
+          suggestedName={smartChips.map((chip) => chip.label.replace(/^(Reporter|Assignee|Text): /, "")).join(", ")}
+        />
+      ) : null}
     </>
   );
 
