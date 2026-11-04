@@ -991,10 +991,39 @@ export async function IssuesList({
   const smartColumns: SmartFilterColumn[] = [
     { title: "Filters", groups: smartGroups.filter((group) => group.label !== "People") },
     {
-      title: "People",
+      title: "Mine",
       groups: [
         ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
-        ...smartGroups.filter((group) => group.label === "People"),
+        ...smartGroups.filter((group) => group.label === "People").map((group) => ({ ...group, label: "My issues" })),
+      ],
+    },
+    {
+      title: "People",
+      groups: [],
+      // Everyone who reported or holds an issue here; picking a name toggles it (several mean any of them).
+      pickers: [
+        {
+          label: "Reporter",
+          options: people.filter((person) => person.reported > 0)
+            .sort((a, b) => b.reported - a.reported || a.name.localeCompare(b.name))
+            .map((person) => ({
+              label: person.name,
+              count: person.reported,
+              href: listHref(togglePerson(currentQuery, REPORTER_PARAM, person.id)),
+              selected: smartFilters.reporters.includes(person.id),
+            })),
+        },
+        {
+          label: "Assignee",
+          options: people.filter((person) => person.assigned > 0)
+            .sort((a, b) => b.assigned - a.assigned || a.name.localeCompare(b.name))
+            .map((person) => ({
+              label: person.name,
+              count: person.assigned,
+              href: listHref(togglePerson(currentQuery, ASSIGNEE_PARAM, person.id)),
+              selected: smartFilters.assignees.includes(person.id),
+            })),
+        },
       ],
     },
   ];

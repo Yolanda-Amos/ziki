@@ -4,10 +4,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { issuesPath } from "@/lib/project-paths";
-import type { ToolbarFilterGroup } from "@/components/toolbar-filter-menu";
+import type { ToolbarFilterGroup, ToolbarFilterOption } from "@/components/toolbar-filter-menu";
 
 export type SmartFilterChip = { label: string; removeHref: string };
-export type SmartFilterColumn = { title: string; groups: ToolbarFilterGroup[] };
+/** A searchable list of people (reporter or assignee); each option's count is their issues in this project. */
+export type SmartFilterPicker = { label: string; options: ToolbarFilterOption[] };
+export type SmartFilterColumn = { title: string; groups: ToolbarFilterGroup[]; pickers?: SmartFilterPicker[] };
 type Favourite = { name: string; href: string };
 
 /** Favourites are kept per project on this device until they move to the server. */
@@ -15,7 +17,9 @@ const storageKey = (slug: string) => `ziki:favourite-searches:${slug}`;
 const MAX_FAVOURITES = 20;
 /** Space kept between the panel and the window's edges. */
 const EDGE = 16;
-const PANEL_WIDTH = 860;
+const PANEL_WIDTH = 1080;
+/** People shown in a picker before anything is typed. */
+const PICKER_TOP = 5;
 
 function readFavourites(slug: string): Favourite[] {
   try {
@@ -46,7 +50,66 @@ const PeopleIcon = () => (
 const StarIcon = ({ filled = false }: { filled?: boolean }) => (
   <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" /></svg>
 );
-const COLUMN_ICONS: ReactNode[] = [<FilterIcon key="f" />, <PeopleIcon key="p" />];
+const MineIcon = () => (
+  <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+);
+const COLUMN_ICONS: ReactNode[] = [<FilterIcon key="f" />, <MineIcon key="m" />, <PeopleIcon key="p" />];
+
+function CheckMark({ on }: { on: boolean }) {
+  return (
+    <span className="flex w-4 justify-center text-zk-accent" aria-hidden="true">
+      {on ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg> : null}
+    </span>
+  );
+}
+
+/** Reporter or Assignee: picked people first, then the busiest; typing finds anyone. */
+function PeoplePicker({ picker, optionClass, labelClass, onPick }: {
+  picker: SmartFilterPicker;
+  optionClass: string;
+  labelClass: string;
+  onPick: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const typed = query.trim().toLowerCase();
+  const selected = picker.options.filter((option) => option.selected);
+  const rest = picker.options.filter((option) => !option.selected);
+  const shown = typed
+    ? picker.options.filter((option) => option.label.toLowerCase().includes(typed)).slice(0, 8)
+    : [...selected, ...rest.slice(0, Math.max(0, PICKER_TOP - selected.length))];
+  const inputId = `picker-${picker.label.toLowerCase()}`;
+  return (
+    <div className="mb-2">
+      <p className={labelClass}>{picker.label}</p>
+      <label htmlFor={inputId} className="sr-only">Find a {picker.label.toLowerCase()}</label>
+      <input
+        id={inputId}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={`Find a ${picker.label.toLowerCase()}…`}
+        className="mx-2 mb-1 h-8 w-[calc(100%-1rem)] rounded-lg border border-zk-border bg-zk-surface px-2.5 text-[13px] text-zk-text outline-none placeholder:text-zk-muted focus:border-electric-blue"
+      />
+      {shown.length === 0 ? <p className="m-0 px-2 py-1 text-[12px] text-zk-muted">No one matches.</p> : null}
+      {shown.map((option) => (
+        <Link
+          key={option.href}
+          href={option.href}
+          role="menuitemcheckbox"
+          aria-checked={option.selected}
+          onClick={onPick}
+          className={`${optionClass} ${option.selected ? "bg-zk-tint" : ""}`}
+        >
+          <CheckMark on={option.selected} />
+          <span className={`min-w-0 flex-1 truncate ${option.selected ? "font-semibold text-zk-accent" : ""}`}>{option.label}</span>
+          <span className="font-mono text-[11px] tabular-nums text-zk-muted">{option.count}</span>
+        </Link>
+      ))}
+      {!typed && picker.options.length > shown.length ? (
+        <p className="m-0 px-2 pt-0.5 text-[11px] text-zk-muted">+{picker.options.length - shown.length} more, type to find</p>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * The issue list's Filters panel (smart search): one box with every filter in
@@ -171,7 +234,7 @@ export function SmartFilterPanel({ columns, summary, hasFilters, currentHref, pr
           aria-label="Filters and favourites"
           // Rendered on <body> (a portal) so no toolbar ancestor can clip or re-anchor it.
           style={{ position: "fixed", top: position.top, right: position.right, width: position.width, maxHeight: Math.max(240, position.maxHeight) }}
-          className="z-[60] grid grid-cols-1 overflow-y-auto rounded-2xl border border-zk-border bg-zk-surface text-left shadow-[0_16px_40px_rgba(11,23,51,0.18)] md:grid-cols-3"
+          className="z-[60] grid grid-cols-1 overflow-y-auto rounded-2xl border border-zk-border bg-zk-surface text-left shadow-[0_16px_40px_rgba(11,23,51,0.18)] md:grid-cols-2 lg:grid-cols-4"
         >
           {columns.map((column, columnIndex) => (
             <section key={column.title} aria-label={column.title} className="border-zk-divider p-4 max-md:border-b md:border-r">
@@ -201,6 +264,9 @@ export function SmartFilterPanel({ columns, summary, hasFilters, currentHref, pr
                     </Link>
                   ))}
                 </div>
+              ))}
+              {column.pickers?.map((picker) => (
+                <PeoplePicker key={picker.label} picker={picker} optionClass={optionClass} labelClass={groupLabelClass} onPick={() => setOpen(false)} />
               ))}
             </section>
           ))}
