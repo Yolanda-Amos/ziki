@@ -1,4 +1,4 @@
 {
   "framework": "nextjs",
-  "buildCommand": "prisma generate && prisma migrate deploy && tsx scripts/dev/fixtures/run.ts && next build --webpack"
+  "buildCommand": "prisma generate && DATABASE_URL=\"$DIRECT_DATABASE_URL\" prisma migrate deploy && DATABASE_URL=\"$DIRECT_DATABASE_URL\" tsx scripts/dev/fixtures/run.ts && next build --webpack"
 }
