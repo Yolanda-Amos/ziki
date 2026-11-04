@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { issuesPath } from "@/lib/project-paths";
 import type { ToolbarFilterGroup } from "@/components/toolbar-filter-menu";
@@ -14,6 +15,7 @@ const storageKey = (slug: string) => `ziki:favourite-searches:${slug}`;
 const MAX_FAVOURITES = 20;
 /** Space kept between the panel and the window's edges. */
 const EDGE = 16;
+const PANEL_WIDTH = 860;
 
 function readFavourites(slug: string): Favourite[] {
   try {
@@ -66,7 +68,7 @@ export function SmartFilterPanel({ columns, summary, hasFilters, currentHref, pr
   const panelRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
+  const [position, setPosition] = useState<{ top: number; right: number; width: number; maxHeight: number } | null>(null);
   const [favourites, setFavourites] = useState<Favourite[]>([]);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
@@ -111,7 +113,10 @@ export function SmartFilterPanel({ columns, summary, hasFilters, currentHref, pr
     const rect = buttonRef.current?.getBoundingClientRect();
     if (rect) {
       const top = rect.bottom + 6;
-      setPosition({ top, right: Math.max(EDGE, window.innerWidth - rect.right), maxHeight: window.innerHeight - top - EDGE });
+      // Line the panel up with the button's right edge, but keep the whole box inside the window.
+      const width = Math.min(PANEL_WIDTH, window.innerWidth - 2 * EDGE);
+      const right = Math.min(Math.max(EDGE, window.innerWidth - rect.right), window.innerWidth - width - EDGE);
+      setPosition({ top, right, width, maxHeight: window.innerHeight - top - EDGE });
     }
     setOpen((value) => !value);
   }
@@ -159,13 +164,14 @@ export function SmartFilterPanel({ columns, summary, hasFilters, currentHref, pr
         {summary ? `Filters: ${summary}` : "Filters"}
         <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
       </button>
-      {open && position ? (
+      {open && position ? createPortal(
         <div
           ref={panelRef}
           role="dialog"
           aria-label="Filters and favourites"
-          style={{ position: "fixed", top: position.top, right: position.right, maxHeight: Math.max(240, position.maxHeight) }}
-          className="z-50 grid w-[min(860px,calc(100vw-32px))] grid-cols-1 overflow-y-auto rounded-2xl border border-zk-border bg-zk-surface text-left shadow-[0_16px_40px_rgba(11,23,51,0.18)] md:grid-cols-3"
+          // Rendered on <body> (a portal) so no toolbar ancestor can clip or re-anchor it.
+          style={{ position: "fixed", top: position.top, right: position.right, width: position.width, maxHeight: Math.max(240, position.maxHeight) }}
+          className="z-[60] grid grid-cols-1 overflow-y-auto rounded-2xl border border-zk-border bg-zk-surface text-left shadow-[0_16px_40px_rgba(11,23,51,0.18)] md:grid-cols-3"
         >
           {columns.map((column, columnIndex) => (
             <section key={column.title} aria-label={column.title} className="border-zk-divider p-4 max-md:border-b md:border-r">
@@ -262,7 +268,8 @@ export function SmartFilterPanel({ columns, summary, hasFilters, currentHref, pr
               ))}
             </ul>
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );
